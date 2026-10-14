@@ -48,7 +48,7 @@ def get_shell_primes(r: int):
     primes.sort(key=lambda p: p[0]**2 + p[1]**2)
     return primes
 
-def animate(max_radius=100, spacing=10, output_dir="gaussian_frames"):
+def animate(max_radius=100, spacing=10, distance=1, output_dir="gaussian_frames"):
     # Dynamically size the canvas to comfortably fit the max radius
     width = height = (max_radius * 2 * spacing) + 21
     origin_x = width // 2
@@ -72,9 +72,12 @@ def animate(max_radius=100, spacing=10, output_dir="gaussian_frames"):
     # Maintain a persistent image canvas so we only draw new shell points each step
     current_image = base_image.copy()
     current_pixels = current_image.load()
+
+    connections_by_shell: dict[int, list[tuple[tuple[int, int], tuple[int, int]]]] = {}
     
     # Loop one iteration per integer grid radius r
     for r in range(max_radius + 1):
+        connections: list[tuple[tuple[int, int], tuple[int, int]]] = []
         # 1. Get only the primes that fall on this exact integer radius shell
         shell_primes = get_shell_primes(r)
         
@@ -86,6 +89,15 @@ def animate(max_radius=100, spacing=10, output_dir="gaussian_frames"):
             if 0 <= px < width and 0 <= py < height:
                 current_pixels[px, py] = (0, 255, 255)  # Cyan for Gaussian primes
                 
+                # Calculate which primes are within the distance threshold
+                neighbourhood = get_neighbourhood((gx,gy), distance)
+                toJoin = [x for x in neighbourhood if is_gaussian_prime(x[0], x[1])]
+                if len(toJoin) == 0:
+                    continue
+                for nx, ny in toJoin:
+                    connections.append(((gx,gy),(nx,ny)))
+                
+        connections_by_shell[r] = connections
         # 3. Save the frame with zero-padded naming (e.g., frame_0000.png)
         filename = os.path.join(output_dir, f"frame_{r:04d}.png")
         current_image.save(filename)
@@ -94,6 +106,72 @@ def animate(max_radius=100, spacing=10, output_dir="gaussian_frames"):
             print(f"Rendered radius r = {r}/{max_radius}...")
 
     print(f"Successfully generated {max_radius + 1} animation frames in the '{output_dir}' folder!")
+
+    for connections in connections_by_shell.values():
+        r += 1
+        for ((gx, gy), (nx, ny)) in connections:
+            draw_line(gx, gy, nx, ny, current_pixels, (255,255,0), max_radius, spacing, width, height)
+            current_pixels[px, py] = (255, 255, 0)  # Yellow for joins
+        filename = os.path.join(output_dir, f"frame_{r:04d}.png")
+        current_image.save(filename)
+
+def get_neighbourhood(point: tuple[int, int], distance: int) -> list[tuple[int, int]]:
+    x, y = point
+    return [
+        (nx, ny)
+        for nx in range(x - distance, x + distance + 1)
+        for ny in range(y - distance, y + distance + 1)
+        if (nx, ny) != point
+    ]
+
+
+
+def draw_line(
+    x_start: int, 
+    y_start: int, 
+    x_end: int, 
+    y_end: int, 
+    pixels, 
+    colour: tuple[int, int, int],
+    max_radius: int,
+    spacing: int,
+    width: int,
+    height: int,
+):
+    # 1. Find the center origin
+    origin_x = width // 2
+    origin_y = height // 2
+    
+    # 2. Convert Cartesian coordinates to pixel coordinates
+    # (Note: Cartesian Y goes UP, so we subtract py)
+    px_start = origin_x + (x_start * spacing)
+    py_start = origin_y - (y_start * spacing)
+    
+    px_end = origin_x + (x_end * spacing)
+    py_end = origin_y - (y_end * spacing)
+    
+    # 3. Bresenham's Line Algorithm
+    dx = abs(px_end - px_start)
+    dy = abs(py_end - py_start)
+    sx = 1 if px_start < px_end else -1
+    sy = 1 if py_start < py_end else -1
+    err = dx - dy
+    
+    while True:
+        # Ensure pixel is within image boundaries before drawing
+        if 0 <= px_start < width and 0 <= py_start < height:
+            pixels[px_start, py_start] = colour
+            
+        if px_start == px_end and py_start == py_end:
+            break
+            
+        e2 = 2 * err
+        if e2 > -dy:
+            err -= dy
+            px_start += sx
+        if e2 < dx:
+            err += dx
+            py_start += sy
 
 def create_video_from_frames(image_folder="gaussian_frames", video_name="gaussian_primes.mp4", fps=30):
     # Get all frame filenames from the directory
